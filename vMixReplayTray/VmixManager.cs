@@ -46,53 +46,59 @@ namespace vMixReplayTray
         {
             while (true)
             {
-                string response = await _streamReader.ReadLineAsync();
-                if (response == null) continue;
-
-                int commandSpaceIndex = response.IndexOf(' ');
-                string command = response.Substring(0, commandSpaceIndex);
-
-                if (command == "XML")
+                try
                 {
-                    string xml = await _streamReader.ReadLineAsync();
-                    XmlDocument doc = new XmlDocument();
-                    doc.LoadXml(xml);
-                    XmlNode replayNode = doc.DocumentElement.GetElementsByTagName("replay")[0];
+                    string response = await _streamReader.ReadLineAsync();
+                    if (response == null) continue;
 
-                    if (replayNode == null)
+                    int commandSpaceIndex = response.IndexOf(' ');
+                    string command = response.Substring(0, commandSpaceIndex);
+
+                    if (command == "XML")
                     {
-                        Debug.Print("No Replay State found");
+                        string xml = await _streamReader.ReadLineAsync();
+                        XmlDocument doc = new XmlDocument();
+                        doc.LoadXml(xml);
+                        XmlNode replayNode = doc.DocumentElement.GetElementsByTagName("replay")[0];
+
+                        if (replayNode == null)
+                        {
+                            Debug.Print("No Replay State found");
+                            continue;
+                        }
+                        bool isLive = replayNode.ParentNode.Attributes["state"].Value == "Running";
+                        int cameraA = int.Parse(replayNode.Attributes["cameraA"].Value);
+                        int cameraB = int.Parse(replayNode.Attributes["cameraB"].Value);
+                        int active = Int32.Parse(doc.DocumentElement.SelectNodes("active")[0].InnerText);
+                        VmixState state = new VmixState
+                        {
+                            IsLive = isLive,
+                            Active = active,
+                            CameraA = cameraA,
+                            CameraB = cameraB
+                        };
+
+                        _state = state;
+                    }
+
+                    string status = response.Substring(commandSpaceIndex + 1, 2);
+                    string message = response.Substring(commandSpaceIndex + 4);
+
+                    if (status != "OK")
+                    {
+                        Debug.Print("vMix TCP Api Error: " + response + "|" + command + "|" + status + "|");
                         continue;
                     }
-                    bool isLive = replayNode.ParentNode.Attributes["state"].Value == "Running";
-                    int cameraA = int.Parse(replayNode.Attributes["cameraA"].Value);
-                    int cameraB = int.Parse(replayNode.Attributes["cameraB"].Value);
-                    int active = Int32.Parse(doc.DocumentElement.SelectNodes("active")[0].InnerText);
-                    VmixState state = new VmixState
+                    Debug.Print(command + " " + message);
+                    switch (command)
                     {
-                        IsLive = isLive,
-                        Active = active,
-                        CameraA = cameraA,
-                        CameraB = cameraB
-                    };
-
-                    _state = state;
-                }
-
-                string status = response.Substring(commandSpaceIndex + 1, 2);
-                string message = response.Substring(commandSpaceIndex + 4);
-
-                if (status != "OK")
+                        case "ACTS":
+                            SendMessage("XML");
+                            break;
+                    }
+                } catch (Exception e)
                 {
-                    Debug.Print("vMix TCP Api Error: " + response + "|" + command + "|" + status + "|");
-                    continue;
-                }
-                Debug.Print(command + " " + message);
-                switch (command)
-                {
-                    case "ACTS":
-                        SendMessage("XML");
-                        break;
+                    Debug.Print("Error in processing received Message");
                 }
             }
         }
@@ -110,6 +116,10 @@ namespace vMixReplayTray
             try
             {
                 _stream.Write(data, 0, data.Length);
+                if (message != "SUBSCRIBE ACTS")
+                {
+                    SendMessage("SUBSCRIBE ACTS");
+                }
             }
             catch (System.IO.IOException e)
             {

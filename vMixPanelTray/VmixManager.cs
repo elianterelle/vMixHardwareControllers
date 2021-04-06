@@ -55,6 +55,10 @@ namespace vMixPanelTray
             try
             {
                 _stream.Write(data, 0, data.Length);
+                if (message != "SUBSCRIBE ACTS")
+                {
+                    SendMessage("SUBSCRIBE ACTS");
+                }
             }
             catch (System.IO.IOException e)
             {
@@ -69,77 +73,83 @@ namespace vMixPanelTray
 
             while (true)
             {
-                string response = await _streamReader.ReadLineAsync();
-                if (response == null) continue;
+                try {
+                    string response = await _streamReader.ReadLineAsync();
+                    if (response == null) continue;
 
-                Debug.Print(response);
+                    Debug.Print(response);
 
-                int commandSpaceIndex = response.IndexOf(' ');
-                string command = response.Substring(0, commandSpaceIndex);
-                Debug.Print("CMD" + command);
-                if (command == "XML")
-                {
-                    string xml = await _streamReader.ReadLineAsync();
-                    Debug.Print(xml);
-                    XmlDocument doc = new XmlDocument();
-                    doc.LoadXml(xml);
-
-                    int preview = Int32.Parse(doc.DocumentElement.SelectNodes("preview")[0].InnerText);
-                    int active = Int32.Parse(doc.DocumentElement.SelectNodes("active")[0].InnerText);
-
-                    XmlNodeList overlaysXml = doc.DocumentElement.SelectSingleNode("overlays").SelectNodes("overlay");
-                    VmixOverlay[] overlays = new VmixOverlay[4];
-
-                    for (int i = 0; i < 4; i++)
+                    int commandSpaceIndex = response.IndexOf(' ');
+                    string command = response.Substring(0, commandSpaceIndex);
+                    Debug.Print("CMD" + command);
+                    if (command == "XML")
                     {
-                        XmlNode overlayXml = overlaysXml[i];
-                        if (overlayXml == null) continue;
-                        int value = -1;
+                        string xml = await _streamReader.ReadLineAsync();
+                        Debug.Print(xml);
+                        XmlDocument doc = new XmlDocument();
+                        doc.LoadXml(xml);
 
-                        if (overlayXml.InnerText != "")
+                        int preview = Int32.Parse(doc.DocumentElement.SelectNodes("preview")[0].InnerText);
+                        int active = Int32.Parse(doc.DocumentElement.SelectNodes("active")[0].InnerText);
+
+                        XmlNodeList overlaysXml = doc.DocumentElement.SelectSingleNode("overlays").SelectNodes("overlay");
+                        VmixOverlay[] overlays = new VmixOverlay[4];
+
+                        for (int i = 0; i < 4; i++)
                         {
+                            XmlNode overlayXml = overlaysXml[i];
+                            if (overlayXml == null) continue;
+                            int value = -1;
 
-                            value = int.Parse(overlayXml.InnerText);
+                            if (overlayXml.InnerText != "")
+                            {
+
+                                value = int.Parse(overlayXml.InnerText);
+                            }
+
+                            int number = Int32.Parse(overlayXml.Attributes["number"].Value);
+
+                            overlays[i] = new VmixOverlay
+                            {
+                                Value = value,
+                                Number = number
+                            };
                         }
 
-                        int number = Int32.Parse(overlayXml.Attributes["number"].Value);
+                        bool fadeToBlack = doc.DocumentElement.SelectNodes("fadeToBlack")[0].InnerText == "True";
 
-                        overlays[i] = new VmixOverlay
+                        Debug.Print(fadeToBlack.ToString());
+                        VmixState state = new VmixState
                         {
-                            Value = value,
-                            Number = number
+                            Active = active,
+                            Preview = preview,
+                            Overlays = overlays,
+                            FadeToBlack = fadeToBlack
                         };
+
+                        handleState(state);
+                        continue;
                     }
 
-                    bool fadeToBlack = doc.DocumentElement.SelectNodes("fadeToBlack")[0].InnerText == "True";
+                    string status = response.Substring(commandSpaceIndex + 1, 2);
+                    string message = response.Substring(commandSpaceIndex + 4);
 
-                    Debug.Print(fadeToBlack.ToString());
-                    VmixState state = new VmixState
+                    if (status != "OK")
                     {
-                        Active = active,
-                        Preview = preview,
-                        Overlays = overlays,
-                        FadeToBlack = fadeToBlack
-                    };
-
-                    handleState(state);
-                    continue;
+                        Debug.Print("vMix TCP Api Error: " + response + "|" + command + "|" + status + "|");
+                        continue;
+                    }
+                    Debug.Print(command + " " + message);
+                    switch (command)
+                    {
+                        case "ACTS":
+                            SendMessage("XML");
+                            break;
+                    }
                 }
-
-                string status = response.Substring(commandSpaceIndex + 1, 2);
-                string message = response.Substring(commandSpaceIndex + 4);
-
-                if (status != "OK")
+                catch (Exception e)
                 {
-                    Debug.Print("vMix TCP Api Error: " + response + "|" + command + "|" + status + "|");
-                    continue;
-                }
-                Debug.Print(command + " " + message);
-                switch (command)
-                {
-                    case "ACTS":
-                        SendMessage("XML");
-                        break;
+                    Debug.Print("Error in processing received Message");
                 }
             }
         }
